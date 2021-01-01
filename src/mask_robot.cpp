@@ -4,6 +4,9 @@ https://github.com/sewenew/redis-plus-plus
 
 and json to parse the outputs
 https://github.com/nlohmann/json
+
+ROS Usage:
+rosrun mask_robot mask_robot <robot_urdf>
 */
 #include <sw/redis++/redis++.h>
 #include <nlohmann/json.hpp>
@@ -31,10 +34,13 @@ using json = nlohmann::json;
 
 
 int main(int argc, char **argv){
+	if(argc != 2){
+		std::cerr << "USAGE: rosrun mask_robot mask_robot <robot_urdf>" 
+			<< std::endl;
+		return 1;
+	}
 	auto redis = Redis("tcp://127.0.0.1:6379");
 	ROS_INFO("Connected to Redis Database");
-	auto t_val = redis.command<OptionalString>("JSON.GET", "ROBOT_STATE");
-	auto j = json::parse(*t_val);
 
 	ros::init(argc, argv, "mask_robot");
 	ros::NodeHandle n;
@@ -58,35 +64,40 @@ int main(int argc, char **argv){
 	vp.h = F_HEIGHT;
 	vp.n = 0.1;
 	vp.f = 8.0;
-	// Eventually this should be the camera transform
-	// / just read directly from the URDF
-	Math3D::RigidTransform rt(
-		Math3D::Vector3(1, 0, 0),
-		Math3D::Vector3(0, 1, 0),
-		Math3D::Vector3(0, 0, 1),
-		Math3D::Vector3(0, 0, 5)
-	);
-	vp.xform = rt;
-	renderer.SetViewport(vp);
-
-	Image mask;
+	
 	// safe is false because we may have other things running on the robot
 	bool safe = false;
-	auto jc = j["Position"]["Robotq"];
-	std::vector<double> tmp;
-	for(auto it = jc.begin(); it != jc.end(); it++){
-		tmp.push_back(*it);
-	}
-	Math::VectorTemplate<double> config(tmp);
-	renderer.RenderMask(config, mask, safe);
-	#ifdef DEBUG
-		ExportImagePPM("mask.ppm", mask);
-	#endif // DEBUG
-	cv::Mat cv_img = toMat(mask);
-	sensor_msgs::ImagePtr msg = cv_bridge::CvImage(
-		std_msgs::Header(), "bgr8", cv_img).toImageMsg();
 	ros::Rate rate(1);
 	while(n.ok()){
+		// Read and parse robot state from redis database
+		auto t_val = redis.command<OptionalString>("JSON.GET", "ROBOT_STATE");
+		auto j = json::parse(*t_val);
+		// Eventually this should be the camera transform
+		// / just read directly from the URDF
+		Math3D::RigidTransform rt(
+			Math3D::Vector3(1, 0, 0),
+			Math3D::Vector3(0, 1, 0),
+			Math3D::Vector3(0, 0, 1),
+			Math3D::Vector3(0, 0, 5)
+		);
+		vp.xform = rt;
+		renderer.SetViewport(vp);
+
+		Image mask;
+		auto jc = j["Position"]["Robotq"];
+		std::vector<double> tmp;
+		for(auto it = jc.begin(); it != jc.end(); it++){
+			tmp.push_back(*it);
+		}
+		Math::VectorTemplate<double> config(tmp);
+		renderer.RenderMask(config, mask, safe);
+		#ifdef DEBUG
+			ExportImagePPM("mask.ppm", mask);
+		#endif // DEBUG
+
+		cv::Mat cv_img = toMat(mask);
+		sensor_msgs::ImagePtr msg = cv_bridge::CvImage(
+			std_msgs::Header(), "bgr8", cv_img).toImageMsg();
 		mask_pub.publish(msg);
 		ros::spinOnce();
 		rate.sleep();
