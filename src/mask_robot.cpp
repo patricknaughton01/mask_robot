@@ -20,6 +20,7 @@ https://github.com/nlohmann/json
 #include <KrisLibrary/image/ppm.h>
 #include <KrisLibrary/camera/viewport.h>
 #include <KrisLibrary/math/VectorTemplate.h>
+#include <KrisLibrary/image/opencv_convert.h>
 
 #define ROBOT_BUF 0.03
 #define F_WIDTH 640
@@ -31,12 +32,9 @@ using json = nlohmann::json;
 
 int main(int argc, char **argv){
 	auto redis = Redis("tcp://127.0.0.1:6379");
-	std::cout << "Made connection" << std::endl;
+	ROS_INFO("Connected to Redis Database");
 	auto t_val = redis.command<OptionalString>("JSON.GET", "ROBOT_STATE");
-	std::cout << "Made get call" << std::endl;
-	std::cout << *t_val << std::endl;
 	auto j = json::parse(*t_val);
-	std::cout << j["Position"]["Robotq"] << std::endl;
 
 	ros::init(argc, argv, "mask_robot");
 	ros::NodeHandle n;
@@ -81,16 +79,17 @@ int main(int argc, char **argv){
 	}
 	Math::VectorTemplate<double> config(tmp);
 	renderer.RenderMask(config, mask, safe);
-	ExportImagePPM("mask.ppm", mask);
-
-//	cv::Mat image = cv::imread(argv[1], cv::IMREAD_COLOR);
-//	sensor_msgs::ImagePtr msg = cv_bridge::CvImage(
-//		std_msgs::Header(), "bgr8", image).toImageMsg();
-//	ros::Rate rate(100);
-//	while(n.ok()){
-//		mask_pub.publish(msg);
-//		ros::spinOnce();
-//		rate.sleep();
-//	}
+	#ifdef DEBUG
+		ExportImagePPM("mask.ppm", mask);
+	#endif // DEBUG
+	cv::Mat cv_img = toMat(mask);
+	sensor_msgs::ImagePtr msg = cv_bridge::CvImage(
+		std_msgs::Header(), "bgr8", cv_img).toImageMsg();
+	ros::Rate rate(1);
+	while(n.ok()){
+		mask_pub.publish(msg);
+		ros::spinOnce();
+		rate.sleep();
+	}
 	return 0;
 }
