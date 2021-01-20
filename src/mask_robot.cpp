@@ -44,8 +44,14 @@ int main(int argc, char **argv){
 
 	ros::init(argc, argv, "mask_robot");
 	ros::NodeHandle n;
+	std::vector<string> sensor_names{"realsense_slam_l515", "zed_torso"};
+	std::vector<image_transport::Publisher> pubs;
 	image_transport::ImageTransport it(n);
-	image_transport::Publisher mask_pub = it.advertise("robot_mask", 1);
+	for(size_t i = 0; i < sensor_names.size(); i++){
+		image_transport::Publisher mask_pub = it.advertise(
+			string("robot_mask/") + sensor_names[i], 1);
+		pubs.push_back(mask_pub);
+	}
 
 	RenderRobotMask renderer;
 	if(!renderer.InitGLContext()){
@@ -54,16 +60,6 @@ int main(int argc, char **argv){
 	if(!renderer.Setup(argv[1], F_WIDTH, F_HEIGHT, ROBOT_BUF)){
 		return 1;
 	}
-	// Manual setting of viewport is just for debugging - eventually
-	// select a sensor by name from URDF
-	Camera::Viewport vp;
-	vp.perspective = true;
-	vp.setFOV(0.5);
-	vp.x = vp.y = 0;
-	vp.w = F_WIDTH;
-	vp.h = F_HEIGHT;
-	vp.n = 0.1;
-	vp.f = 8.0;
 	
 	// safe is false because we may have other things running on the robot
 	bool safe = false;
@@ -72,33 +68,27 @@ int main(int argc, char **argv){
 		// Read and parse robot state from redis database
 		auto t_val = redis.command<OptionalString>("JSON.GET", "ROBOT_STATE");
 		auto j = json::parse(*t_val);
-		// Eventually this should be the camera transform
-		// / just read directly from the URDF
-		Math3D::RigidTransform rt(
-			Math3D::Vector3(1, 0, 0),
-			Math3D::Vector3(0, 1, 0),
-			Math3D::Vector3(0, 0, 1),
-			Math3D::Vector3(0, 0, 5)
-		);
-		vp.xform = rt;
-		renderer.SetViewport(vp);
-
-		Image mask;
 		auto jc = j["Position"]["Robotq"];
 		std::vector<double> tmp;
 		for(auto it = jc.begin(); it != jc.end(); it++){
 			tmp.push_back(*it);
 		}
 		Math::VectorTemplate<double> config(tmp);
-		renderer.RenderMask(config, mask, safe);
-		#ifdef DEBUG
-			ExportImagePPM("mask.ppm", mask);
-		#endif // DEBUG
 
-		cv::Mat cv_img = toMat(mask);
-		sensor_msgs::ImagePtr msg = cv_bridge::CvImage(
-			std_msgs::Header(), "bgr8", cv_img).toImageMsg();
-		mask_pub.publish(msg);
+		for(size_t i = 0; i < sensor_names.size(); i++){
+			renderer.SetSensor(sensor_names[i].c_str());
+			Image mask;
+			renderer.RenderMask(config, mask, safe);
+			#ifdef DEBUG
+				ExportImagePPM(sensor_names[i] + ".ppm", mask);
+			#endif // DEBUG
+
+			cv::Mat cv_img = toMat(mask);
+			sensor_msgs::ImagePtr msg = cv_bridge::CvImage(
+				std_msgs::Header(), "bgr8", cv_img).toImageMsg();
+			pubs[i].publish(msg);
+		}
+
 		ros::spinOnce();
 		rate.sleep();
 	}
