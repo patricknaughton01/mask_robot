@@ -44,7 +44,7 @@ int main(int argc, char **argv){
 
 	ros::init(argc, argv, "mask_robot");
 	ros::NodeHandle n;
-	std::vector<string> sensor_names{"realsense_slam_l515", "zed_torso"};
+	std::vector<string> sensor_names{"realsense_slam_l515", "zed_slam"};
 	std::vector<image_transport::Publisher> pubs;
 	image_transport::ImageTransport it(n);
 	for(size_t i = 0; i < sensor_names.size(); i++){
@@ -85,7 +85,7 @@ int main(int argc, char **argv){
 
 			cv::Mat cv_img = toMat(mask);
 			sensor_msgs::ImagePtr msg = cv_bridge::CvImage(
-				std_msgs::Header(), "bgr8", cv_img).toImageMsg();
+				std_msgs::Header(), "8UC1", cv_img).toImageMsg();
 			pubs[i].publish(msg);
 		}
 
