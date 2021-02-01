@@ -44,7 +44,7 @@ int main(int argc, char **argv){
 
 	ros::init(argc, argv, "mask_robot");
 	ros::NodeHandle n;
-	std::vector<string> sensor_names{"realsense_slam_l515", "zed_slam"};
+	std::vector<string> sensor_names{"realsense_slam_l515", "zed_slam_left"};
 	std::vector<image_transport::Publisher> pubs;
 	image_transport::ImageTransport it(n);
 	for(size_t i = 0; i < sensor_names.size(); i++){
@@ -80,12 +80,16 @@ int main(int argc, char **argv){
 			Image mask;
 			renderer.RenderMask(config, mask, safe);
 			#ifdef DEBUG
-				ExportImagePPM(sensor_names[i] + ".ppm", mask);
+				ExportImagePPM((sensor_names[i] + ".ppm").c_str(), mask);
 			#endif // DEBUG
-
+			// Flipping the height and width, otherwise image rows and columns
+			// are messed up.
+			unsigned short tmp = mask.w;
+			mask.w = mask.h;
+			mask.h = tmp;
 			cv::Mat cv_img = toMat(mask);
 			sensor_msgs::ImagePtr msg = cv_bridge::CvImage(
-				std_msgs::Header(), "8UC1", cv_img).toImageMsg();
+				std_msgs::Header(), sensor_msgs::image_encodings::RGB8, cv_img).toImageMsg();
 			pubs[i].publish(msg);
 		}
 

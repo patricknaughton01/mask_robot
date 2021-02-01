@@ -242,6 +242,10 @@ add_executable(mask_robot ${SOURCES})
 #	-lroscpp_serialization -llog4cxx -lGL -lX11
 #	-ltinyxml)
 
+catkin_install_python(PROGRAMS src/sensors_to_ros.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
 target_link_libraries(mask_robot 
 	${OPENGL_LIBRARIES} 
 	${OPENGL_glu_LIBRARY} 
