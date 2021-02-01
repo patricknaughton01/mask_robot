@@ -63,7 +63,10 @@ def main():
 			img = img_dict[name]
 			if len(img) > 0:
 				color = img[0]
+				# Normalize depth to be 0 <= d < 1
 				depth = (img[1] - min_d) / (max_d - min_d)
+				# Fit in maximum range of 16 (unsigned) bits
+				depth *= (2**16 - 1)
 				depth = depth.astype("uint16")
 				depth = bridge.cv2_to_imgmsg(depth, "16UC1")
 				pubs[topic_pref + name + rgb_suf].publish(bridge.cv2_to_imgmsg(color, "8UC3"))
