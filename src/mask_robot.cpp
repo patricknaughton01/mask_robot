@@ -18,16 +18,18 @@ rosrun mask_robot mask_robot <robot_urdf>
 #include <string>
 #include <sstream>
 #include <cmath>
+#include <memory>
 #include <KrisLibrary/math3d/primitives.h>
 #include <RenderRobotMask.h>
 #include <KrisLibrary/image/ppm.h>
 #include <KrisLibrary/camera/viewport.h>
 #include <KrisLibrary/math/VectorTemplate.h>
 #include <KrisLibrary/image/opencv_convert.h>
+#include <Klampt/Modeling/World.h>
+#include <Klampt/Sensing/Sensor.h>
+#include <Klampt/Sensing/VisualSensors.h>
 
 #define ROBOT_BUF 0.03
-#define F_WIDTH 640
-#define F_HEIGHT 480
 
 using namespace sw::redis;
 using json = nlohmann::json;
@@ -44,7 +46,7 @@ int main(int argc, char **argv){
 
 	ros::init(argc, argv, "mask_robot");
 	ros::NodeHandle n;
-	std::vector<string> sensor_names{"realsense_slam_l515", "zed_slam_left"};
+	std::vector<string> sensor_names{"zed_slam_left", "realsense_slam_l515"};
 	std::vector<image_transport::Publisher> pubs;
 	image_transport::ImageTransport it(n);
 	for(size_t i = 0; i < sensor_names.size(); i++){
@@ -53,17 +55,38 @@ int main(int argc, char **argv){
 		pubs.push_back(mask_pub);
 	}
 
-	RenderRobotMask renderer;
-	if(!renderer.InitGLContext()){
-		return 1;
+	std::vector<std::shared_ptr<RenderRobotMask>> renderers;
+	Robot robot;
+	robot.Load(argv[1]);
+	for(size_t i = 0; i < sensor_names.size(); i++){
+		std::cout << sensor_names[i] << std::endl;
+		RobotSensors sensors;
+		sensors.MakeDefault(&robot);
+		auto cam = sensors.GetNamedSensor(sensor_names[i]);
+		if(!cam) {
+			fprintf(stderr,"No sensor named %s\n", sensor_names[i].c_str());
+			exit(1);
+		}
+		CameraSensor* cam2 = dynamic_cast<CameraSensor*>(&*cam);
+		Camera::Viewport vp;
+		cam2->GetViewport(vp);
+
+		std::shared_ptr<RenderRobotMask> r = std::make_shared<RenderRobotMask>();
+		if(!r->InitGLContext()){
+			return 1;
+		}
+		if(!r->Setup(argv[1], vp.w, vp.h, ROBOT_BUF)){
+			return 1;
+		}
+		r->SetSensor(sensor_names[i].c_str());
+		renderers.push_back(r);
 	}
-	if(!renderer.Setup(argv[1], F_WIDTH, F_HEIGHT, ROBOT_BUF)){
-		return 1;
-	}
+	std::cout << "Loaded renderers" << std::endl;
 	
-	// safe is false because we may have other things running on the robot
-	bool safe = false;
-	ros::Rate rate(1);
+	// safe is true because we may have other things running on the robot
+	bool safe = true;
+	ros::Rate rate(30);
+	std::cout << "Publishing masks" << std::endl;
 	while(n.ok()){
 		// Read and parse robot state from redis database
 		auto t_val = redis.command<OptionalString>("JSON.GET", "ROBOT_STATE");
@@ -76,21 +99,23 @@ int main(int argc, char **argv){
 		Math::VectorTemplate<double> config(tmp);
 
 		for(size_t i = 0; i < sensor_names.size(); i++){
-			renderer.SetSensor(sensor_names[i].c_str());
 			Image mask;
-			renderer.RenderMask(config, mask, safe);
-			#ifdef DEBUG
-				ExportImagePPM((sensor_names[i] + ".ppm").c_str(), mask);
-			#endif // DEBUG
+			renderers[i]->RenderMask(config, mask, safe);
 			// Flipping the height and width, otherwise image rows and columns
 			// are messed up.
 			unsigned short tmp = mask.w;
 			mask.w = mask.h;
 			mask.h = tmp;
 			cv::Mat cv_img = toMat(mask);
+			std::vector<cv::Mat> channels(3);
+			cv::split(cv_img, channels);
 			sensor_msgs::ImagePtr msg = cv_bridge::CvImage(
-				std_msgs::Header(), sensor_msgs::image_encodings::RGB8, cv_img).toImageMsg();
+				std_msgs::Header(), "8UC1", channels[0]).toImageMsg();
 			pubs[i].publish(msg);
+			#ifdef DEBUG
+				ExportImagePPM((sensor_names[i] + ".ppm").c_str(), mask);
+				std::cout << cv_img.rows << " " << cv_img.cols << std::endl;
+			#endif // DEBUG
 		}
 
 		ros::spinOnce();

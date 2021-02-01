@@ -46,7 +46,7 @@ def main():
 	for cn in camera_names:
 		topic_names.append(cn + rgb_suf)
 		topic_names.append(cn + d_suf)
-	rate = rospy.Rate(1)
+	rate = rospy.Rate(30)
 	pubs = {}
 	topic_pref = "images/"
 	for name in topic_names:
@@ -55,15 +55,19 @@ def main():
 		pubs[full_name] = pub
 	#rospy.init_node("sim_pipe", anonymous=True)
 	bridge = CvBridge()
+	max_d = 6.0
+	min_d = 0.0
 	while not rospy.is_shutdown():
 		img_dict = sensor_module.get_rgbd_images()
 		for name in camera_names:
 			img = img_dict[name]
 			if len(img) > 0:
 				color = img[0]
-				depth = img[1]
+				depth = (img[1] - min_d) / (max_d - min_d)
+				depth = depth.astype("uint16")
+				depth = bridge.cv2_to_imgmsg(depth, "16UC1")
 				pubs[topic_pref + name + rgb_suf].publish(bridge.cv2_to_imgmsg(color, "8UC3"))
-				pubs[topic_pref + name + d_suf].publish(bridge.cv2_to_imgmsg(depth, "64FC1"))
+				pubs[topic_pref + name + d_suf].publish(depth)
 		rate.sleep()
 
 
