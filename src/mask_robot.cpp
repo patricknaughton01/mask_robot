@@ -78,6 +78,7 @@ int main(int argc, char **argv){
 		if(!r->Setup(argv[1], vp.w, vp.h, ROBOT_BUF)){
 			return 1;
 		}
+		r->SetSensor(sensor_names[i].c_str());
 		renderers.push_back(r);
 	}
 	std::cout << "Loaded renderers" << std::endl;
@@ -99,8 +100,6 @@ int main(int argc, char **argv){
 
 		for(size_t i = 0; i < sensor_names.size(); i++){
 			Image mask;
-			renderers[i]->robot.UpdateConfig(config);
-			renderers[i]->SetSensor(sensor_names[i].c_str());
 			renderers[i]->RenderMask(config, mask, safe);
 			// Flipping the height and width, otherwise image rows and columns
 			// are messed up.
